@@ -1,0 +1,72 @@
+name: SecOps
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  free-iac-checks:
+    name: Format, validate, and Trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+          terraform_version: "1.9.8"
+
+      - name: Initialize Terraform
+        run: terraform init -backend=false -input=false
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      - name: Run Trivy IaC scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  mend-oss-sca:
+    name: Mend OSS/SCA
+    if: ${{ vars.MEND_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Mend OSS/SCA
+        uses: mend-toolkit/mend-sca-action@v1
+        env:
+          MEND_API_KEY: ${{ secrets.MEND_API_KEY }}
+          MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+          MEND_PROJECT_NAME: finops-explainer-infra
+
+  checkmarx:
+    name: Checkmarx scan
+    if: ${{ vars.CHECKMARX_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkmarx One
+        uses: checkmarx/ast-github-action@main
+        with:
+          project_name: finops-explainer-infra
+          cx_tenant: ${{ vars.CHECKMARX_TENANT }}
+          cx_client_id: ${{ secrets.CHECKMARX_CLIENT_ID }}
+          cx_client_secret: ${{ secrets.CHECKMARX_CLIENT_SECRET }}
+          additional_params: --sast-incremental
+
